@@ -333,8 +333,11 @@ def crawl_one_product(product):
     for idx, city in enumerate(CITIES, 1):
         cid, cname = city["id"], city["name"]
         offices = post_office_list(cid, code)
-        for o in offices:
-
+        for o in offices:                       # ← 这里必须缩进
+            o["cityName"] = cname
+            o["cityId"] = cid
+            o["productCode"] = code
+            o["productName"] = name
         results.extend(offices)
         logging.info(f"[{idx:03}/{len(CITIES)}] {cname:<10}  {len(offices):>3} 条")
     return results
