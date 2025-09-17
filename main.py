@@ -292,6 +292,9 @@ CITY_DATA_RAW = {
 def now_str():
     return datetime.now().strftime("%m%d")
 
+def get_headers():          # 放在模块级别，别缩进到任何函数/条件里
+    return HEADERS_TPL
+
 
 def post_office_list(city_id, product_code):
     url = "https://ebkapi.17u.cn/hospital/supplier/office/list"
