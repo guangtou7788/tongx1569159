@@ -22,8 +22,7 @@ jobs:
         run: pip install -r requirements.txt
 
       - name: Run crawler
-        env:
-          TOKEN: ${{ secrets.TOKEN }}   # 在仓库 Settings → Secrets → Actions 里添加
+
         run: python main.py
 
       - name: Commit & push JSON
