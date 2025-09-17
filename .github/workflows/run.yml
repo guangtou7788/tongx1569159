@@ -1,4 +1,4 @@
-name: Crawl Clinic Data
+name: 爬取同欣产品地址
 
 on:
   schedule:
