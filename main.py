@@ -292,10 +292,6 @@ CITY_DATA_RAW = {
 def now_str():
     return datetime.now().strftime("%m%d")
 
-def get_headers():
-    h = HEADERS_TPL.copy()
-    h["token"] = os.getenv("TOKEN", HEADERS_TPL["token"])
-    return h
 
 def post_office_list(city_id, product_code):
     url = "https://ebkapi.17u.cn/hospital/supplier/office/list"
