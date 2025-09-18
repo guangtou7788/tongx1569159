@@ -260,7 +260,7 @@ def post_office_list(city_id, product_code):
     for attempt in range(1, 4):
         try:
             time.sleep(random.uniform(0.5, 1.0))
-            resp = requests.post(url, headers=get_headers(), json=payload, timeout=12)
+            resp = requests.post(url, headers=HEADERS_TPL, json=payload, timeout=12)
             resp.raise_for_status()
             data = resp.json()
             if data.get("code") == "200":
