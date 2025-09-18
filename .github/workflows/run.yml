@@ -2,16 +2,20 @@ name: 爬取同欣产品地址
 
 on:
   schedule:
-    # 每周四 03:00 北京时间 (UTC 19:00 前一天)
-    - cron: '0 19 * * 3'
-  workflow_dispatch:   # 手动触发按钮
+    - cron: '0 19 * * 3'   # 每周四 03:00 北京时间
+  workflow_dispatch:
 
 jobs:
   crawl:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write          # ① 给 GITHUB_TOKEN 开写权限
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.PAT }}   # ② 推荐用 PAT，回写才稳
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -22,12 +26,15 @@ jobs:
         run: pip install -r requirements.txt
 
       - name: Run crawler
-
         run: python main.py
 
       - name: Commit & push JSON
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+          git pull origin main --rebase || true   # ③ 先拉
           git add *.json
-          git diff --cached --quiet || (git commit -m "auto: update clinic data $(date +%m%d)" && git push)
+          git diff --cached --quiet || (
+            git commit -m "auto: update clinic data $(date +%m%d)" &&
+            git push origin main                  # ④ 显式指定分支
+          )
