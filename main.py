@@ -26,15 +26,15 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(
 # --------------------------------------------------
 # 1. 产品配置表：按顺序跑
 PRODUCTS = [
-    {"name": "悦享涂氟",       "code": "1000804"},
-    {"name": "悦享窝沟",       "code": "1000805"},
+    {"name": "悦享涂氟", "code": "1000804"},
+    {"name": "悦享窝沟", "code": "1000805"},
     {"name": "优享窝沟-限上海", "code": "1000480"},
     {"name": "优享洁牙-限上海", "code": "1000478"},
-    {"name": "悦享洁牙",       "code": "1000616"},
-    {"name": "惠享洁牙",       "code": "1000642"},
+    {"name": "悦享洁牙", "code": "1000616"},
+    {"name": "惠享洁牙", "code": "1000642"},
     {"name": "尊享洁牙-限上海", "code": "1000801"},
-    {"name": "精选洁牙",       "code": "1000615"},
-    {"name": "臻享洁牙",       "code": "1000628"},
+    {"name": "精选洁牙", "code": "1000615"},
+    {"name": "臻享洁牙", "code": "1000628"},
 ]
 
 # --------------------------------------------------
@@ -48,8 +48,9 @@ HEADERS_TPL = {
     "Referer": "https://hy.txhmo.com/",
     "User-Agent": ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
                    "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"),
-    "token": "f2436cdd-e3ad-47ef-80ab-e007bdb5614a",   # <<<<<< 每天改这里
+    "token": "f2436cdd-e3ad-47ef-80ab-e007bdb5614a",  # <<<<<< 每天改这里
 }
+
 
 # --------------------------------------------------
 # 3. 固定城市数据（只能用它）
@@ -287,7 +288,7 @@ def crawl_one_product(product):
     for idx, city in enumerate(CITIES, 1):
         cid, cname = city["id"], city["name"]
         offices = post_office_list(cid, code)
-        for o in offices:                       # ← 这里必须缩进
+        for o in offices:
             o["cityName"] = cname
             o["cityId"] = cid
             o["productCode"] = code
@@ -296,18 +297,44 @@ def crawl_one_product(product):
         logging.info(f"[{idx:03}/{len(CITIES)}] {cname:<10}  {len(offices):>3} 条")
     return results
 
-def save(product_name, data):
+# ▼▼▼▼▼▼▼▼▼▼▼▼▼【 第 1 处改动 】▼▼▼▼▼▼▼▼▼▼▼▼▼
+# 修改 save 函数，增加一个参数 `output_dir` 来接收要保存到的目录
+def save(product_name, data, output_dir):
+    # 构造带有目录路径的文件名
     fname = f"{product_name}_{now_str()}.json"
-    with open(fname, "w", encoding="utf-8") as f:
+    # 使用 os.path.join 来智能地拼接路径，它会自动处理 Mac/Windows 的斜杠问题
+    full_path = os.path.join(output_dir, fname)
+
+    # 使用新的完整路径来打开文件
+    with open(full_path, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=4)
-    logging.info(f"已写入 {fname}  共 {len(data)} 条")
+    logging.info(f"已写入 {full_path}  共 {len(data)} 条")
+# ▲▲▲▲▲▲▲▲▲▲▲▲▲【 第 1 处改动 】▲▲▲▲▲▲▲▲▲▲▲▲▲
+
 
 # ---------- 启动 ----------
 if __name__ == "__main__":
+
+    # ▼▼▼▼▼▼▼▼▼▼▼▼▼【 第 2 处改动 】▼▼▼▼▼▼▼▼▼▼▼▼▼
+    # 1. 定义一个基于当天日期的目录名，格式 YYYY-MM-DD 更利于排序
+    today_dir = datetime.now().strftime("%Y-%m-%d")
+
+    # 2. 创建这个目录
+    #    os.makedirs 可以一次性创建多层目录
+    #    exist_ok=True 表示如果目录已经存在，不要报错，直接跳过
+    os.makedirs(today_dir, exist_ok=True)
+    logging.info(f"所有文件将被保存在目录: ./{today_dir}/")
+    # ▲▲▲▲▲▲▲▲▲▲▲▲▲【 第 2 处改动 】▲▲▲▲▲▲▲▲▲▲▲▲▲
+
     CITIES = load_cities()
     total = 0
     for prod in PRODUCTS:
         rows = crawl_one_product(prod)
-        save(prod["name"], rows)
+
+        # ▼▼▼▼▼▼▼▼▼▼▼▼▼【 第 3 处改动 】▼▼▼▼▼▼▼▼▼▼▼▼▼
+        # 调用 save 函数时，把刚刚创建的目录路径传进去
+        save(prod["name"], rows, today_dir)
+        # ▲▲▲▲▲▲▲▲▲▲▲▲▲【 第 3 处改动 】▲▲▲▲▲▲▲▲▲▲▲▲▲
+
         total += len(rows)
-    bark_push("GitHub Actions 跑完了", f"共抓取 {total} 条门店数据")
+    bark_push("数据抓取完成", f"共抓取 {total} 条门店数据，保存在 {today_dir} 目录")
