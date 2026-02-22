@@ -9,12 +9,13 @@ jobs:
   crawl:
     runs-on: ubuntu-latest
     permissions:
-      contents: write # ① 给 GITHUB_TOKEN 开写权限
+      contents: write # ① 这里已经给 GITHUB_TOKEN 开启了写权限，所以回写完全没问题
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          token: ${{ secrets.PAT }} # ② 推荐用 PAT，回写才稳
+          # ② 直接改成 GITHUB_TOKEN，不需要再去配置 secrets 了
+          token: ${{ secrets.GITHUB_TOKEN }} 
           fetch-depth: 0
 
       - name: Set up Python
@@ -28,7 +29,6 @@ jobs:
       - name: Run crawler
         run: python main.py
 
-      # ▼▼▼▼▼▼▼▼▼▼▼▼▼【 只修改这里 】▼▼▼▼▼▼▼▼▼▼▼▼▼
       - name: Commit & push data
         run: |
           git config user.name  "github-actions[bot]"
@@ -36,17 +36,13 @@ jobs:
           git pull origin main --rebase || true
 
           # 1. 定义一个变量来存储 YYYY-MM-DD 格式的日期/目录名
-          #    这和你的 Python 脚本输出目录格式保持一致
           TODAY_DIR=$(date +'%Y-%m-%d')
 
-          # 2. 修改 git add 命令，不再是 *.json，而是直接添加新建的日期目录
-          #    这样就能把 '2025-09-25/' 目录下的所有文件都添加进去
+          # 2. 修改 git add 命令，添加新建的日期目录
           git add "$TODAY_DIR/"
 
           # 3. 检查是否有文件被暂存 (staged)，如果有，才执行提交和推送
-          #    同时，优化 commit message，使其包含完整的日期
           git diff --cached --quiet || (
             git commit -m "auto: update clinic data for $TODAY_DIR" &&
             git push origin main
           )
-      # ▲▲▲▲▲▲▲▲▲▲▲▲▲【 修改结束 】▲▲▲▲▲▲▲▲▲▲▲▲▲
