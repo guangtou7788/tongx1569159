@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 import os
+import sys
 import json
 import time
 import random
@@ -21,6 +22,7 @@ def bark_push(title: str, body: str = ""):
     except Exception as e:
         logging.warning(f"Bark 推送失败: {e}")
 
+# 初始化基础控制台日志
 logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
 
 # --------------------------------------------------
@@ -41,7 +43,7 @@ PRODUCTS = [
 ]
 
 # --------------------------------------------------
-# 2. 请求头模板（token 每天可能变）
+# 2. 请求头模板
 HEADERS_TPL = {
     "Host": "ebkapi.17u.cn",
     "Accept": "application/json, text/plain, */*",
@@ -51,12 +53,11 @@ HEADERS_TPL = {
     "Referer": "https://hy.txhmo.com/",
     "User-Agent": ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
                    "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"),
-    "token": "f2436cdd-e3ad-47ef-80ab-e007bdb5614a",  # <<<<<< 每天改这里
+    "token": "f2436cdd-e3ad-47ef-80ab-e007bdb5614a",  
 }
 
-
 # --------------------------------------------------
-# 3. 固定城市数据（只能用它）
+# 3. 固定城市数据
 CITY_DATA_RAW = {
     "code": "200", "message": "操作成功",
     "data": {
@@ -250,6 +251,14 @@ CITY_DATA_RAW = {
 def now_str():
     return datetime.now().strftime("%m%d")
 
+def load_cities():
+    """把你给的城市 JSON 摊平成 list"""
+    if CITY_DATA_RAW.get("code") != "200":
+        raise RuntimeError("城市数据格式错误")
+    cities = []
+    for group in CITY_DATA_RAW["data"].values():
+        cities.extend(group)
+    return cities
 
 def post_office_list(city_id, product_code):
     url = "https://ebkapi.17u.cn/hospital/supplier/office/list"
@@ -269,75 +278,78 @@ def post_office_list(city_id, product_code):
             data = resp.json()
             if data.get("code") == "200":
                 return data.get("data", [])
-            logging.warning(f"API 异常: {data.get('message')}  attempt={attempt}")
+            logging.warning(f"API 返回异常状态码/信息: {data.get('message')}  attempt={attempt}")
         except Exception as e:
             logging.warning(f"请求失败: {e}  attempt={attempt}")
     return []
 
-# ---------- 主流程 ----------
-def load_cities():
-    """把你给的城市 JSON 摊平成 list"""
-    if CITY_DATA_RAW.get("code") != "200":
-        raise RuntimeError("城市数据格式错误")
-    cities = []
-    for group in CITY_DATA_RAW["data"].values():
-        cities.extend(group)
-    return cities
-
-def crawl_one_product(product):
-    code, name = product["code"], product["name"]
-    logging.info(f"↓↓ 开始抓取【{name}】({code})")
-    results = []
-    for idx, city in enumerate(CITIES, 1):
-        cid, cname = city["id"], city["name"]
-        offices = post_office_list(cid, code)
-        for o in offices:
-            o["cityName"] = cname
-            o["cityId"] = cid
-            o["productCode"] = code
-            o["productName"] = name
-        results.extend(offices)
-        logging.info(f"[{idx:03}/{len(CITIES)}] {cname:<10}  {len(offices):>3} 条")
-    return results
-
-# ▼▼▼▼▼▼▼▼▼▼▼▼▼【 第 1 处改动 】▼▼▼▼▼▼▼▼▼▼▼▼▼
-# 修改 save 函数，增加一个参数 `output_dir` 来接收要保存到的目录
+# ---------- 核心保存逻辑 ----------
 def save(product_name, data, output_dir):
-    # 构造带有目录路径的文件名
+    if not data:
+        return
     fname = f"{product_name}_{now_str()}.json"
-    # 使用 os.path.join 来智能地拼接路径，它会自动处理 Mac/Windows 的斜杠问题
     full_path = os.path.join(output_dir, fname)
-
-    # 使用新的完整路径来打开文件
     with open(full_path, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=4)
     logging.info(f"已写入 {full_path}  共 {len(data)} 条")
-# ▲▲▲▲▲▲▲▲▲▲▲▲▲【 第 1 处改动 】▲▲▲▲▲▲▲▲▲▲▲▲▲
 
+# ---------- 抓取与异常抢救流程 ----------
+def crawl_one_product(product, city_list, output_dir):
+    code, name = product["code"], product["name"]
+    logging.info(f"↓↓ 开始抓取【{name}】({code})")
+    results = []
+    
+    try:
+        for idx, city in enumerate(city_list, 1):
+            cid, cname = city["id"], city["name"]
+            offices = post_office_list(cid, code)
+            for o in offices:
+                # 顺手做一点数据清洗兜底，防止前端渲染出错
+                o["cityName"] = cname
+                o["cityId"] = cid
+                o["productCode"] = code
+                o["productName"] = name
+                o["address"] = o.get("address", "地址暂无")
+                o["longitude"] = o.get("longitude", "") 
+                o["latitude"] = o.get("latitude", "")
+            results.extend(offices)
+            logging.info(f"[{idx:03}/{len(city_list)}] {cname:<10}  {len(offices):>3} 条")
+            
+    except Exception as e:
+        # 捕获到不可预知的严重错误，记录详细的堆栈信息进文件
+        error_msg = f"抓取【{name}】时发生严重中断: {e}"
+        logging.error(error_msg, exc_info=True) 
+        # 发送紧急通知
+        bark_push("🚨 门店抓取中断", f"产品【{name}】抓取遇到意外错误，已抢救保存前 {len(results)} 条数据。详细报错已写入日志文件。")
+        
+    finally:
+        # 无论如何，哪怕报错了，这行代码也一定会执行，实现数据落袋为安
+        if results:
+            save(name, results, output_dir)
+            
+    return results
 
-# ---------- 启动 ----------
+# ---------- 启动入口 ----------
 if __name__ == "__main__":
-
-    # ▼▼▼▼▼▼▼▼▼▼▼▼▼【 第 2 处改动 】▼▼▼▼▼▼▼▼▼▼▼▼▼
-    # 1. 定义一个基于当天日期的目录名，格式 YYYY-MM-DD 更利于排序
+    # 1. 创建当天的存放目录
     today_dir = datetime.now().strftime("%Y-%m-%d")
-
-    # 2. 创建这个目录
-    #    os.makedirs 可以一次性创建多层目录
-    #    exist_ok=True 表示如果目录已经存在，不要报错，直接跳过
     os.makedirs(today_dir, exist_ok=True)
+    
+    # 2. 动态配置日志处理器，把 WARNING 级别以上的报错存入文本
+    log_file = os.path.join(today_dir, "error.log")
+    file_handler = logging.FileHandler(log_file, encoding='utf-8')
+    file_handler.setLevel(logging.WARNING) 
+    formatter = logging.Formatter("%(asctime)s | %(levelname)s | %(message)s")
+    file_handler.setFormatter(formatter)
+    logging.getLogger().addHandler(file_handler)
+    
     logging.info(f"所有文件将被保存在目录: ./{today_dir}/")
-    # ▲▲▲▲▲▲▲▲▲▲▲▲▲【 第 2 处改动 】▲▲▲▲▲▲▲▲▲▲▲▲▲
-
+    
+    # 3. 开始执行
     CITIES = load_cities()
     total = 0
     for prod in PRODUCTS:
-        rows = crawl_one_product(prod)
-
-        # ▼▼▼▼▼▼▼▼▼▼▼▼▼【 第 3 处改动 】▼▼▼▼▼▼▼▼▼▼▼▼▼
-        # 调用 save 函数时，把刚刚创建的目录路径传进去
-        save(prod["name"], rows, today_dir)
-        # ▲▲▲▲▲▲▲▲▲▲▲▲▲【 第 3 处改动 】▲▲▲▲▲▲▲▲▲▲▲▲▲
-
+        rows = crawl_one_product(prod, CITIES, today_dir) 
         total += len(rows)
+
     bark_push("数据抓取完成", f"共抓取 {total} 条门店数据，保存在 {today_dir} 目录")
