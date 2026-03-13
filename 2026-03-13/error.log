@@ -67,3 +67,5 @@
 2026-03-13 12:13:37,520 | WARNING | 请求失败: HTTPSConnectionPool(host='ebkapi.17u.cn', port=443): Read timed out. (read timeout=12)  attempt=1
 2026-03-13 12:14:03,782 | WARNING | 请求失败: HTTPSConnectionPool(host='ebkapi.17u.cn', port=443): Max retries exceeded with url: /hospital/supplier/office/list (Caused by ConnectTimeoutError(<HTTPSConnection(host='ebkapi.17u.cn', port=443) at 0x7f841ba74590>, 'Connection to ebkapi.17u.cn timed out. (connect timeout=12)'))  attempt=1
 2026-03-13 12:14:33,767 | WARNING | 请求失败: HTTPSConnectionPool(host='ebkapi.17u.cn', port=443): Max retries exceeded with url: /hospital/supplier/office/list (Caused by ConnectTimeoutError(<HTTPSConnection(host='ebkapi.17u.cn', port=443) at 0x7f841ba7c890>, 'Connection to ebkapi.17u.cn timed out. (connect timeout=12)'))  attempt=1
+2026-03-13 17:46:26,627 | WARNING | 请求失败: HTTPSConnectionPool(host='ebkapi.17u.cn', port=443): Read timed out. (read timeout=12)  attempt=1
+2026-03-13 17:53:07,289 | WARNING | 请求失败: HTTPSConnectionPool(host='ebkapi.17u.cn', port=443): Read timed out. (read timeout=12)  attempt=1
