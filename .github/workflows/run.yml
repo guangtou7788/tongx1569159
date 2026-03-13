@@ -2,19 +2,20 @@ name: 爬取同欣产品地址
 
 on:
   schedule:
-    - cron: '0 19 * * 3' # 每周四 03:00 北京时间
+    # 北京时间凌晨 1 点 = UTC 时间前一天的 17 点。
+    # */2 表示每隔 2 天执行一次
+    - cron: '0 17 */2 * *' 
   workflow_dispatch:
 
 jobs:
   crawl:
     runs-on: ubuntu-latest
     permissions:
-      contents: write # ① 这里已经给 GITHUB_TOKEN 开启了写权限，所以回写完全没问题
+      contents: write
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          # ② 直接改成 GITHUB_TOKEN，不需要再去配置 secrets 了
           token: ${{ secrets.GITHUB_TOKEN }} 
           fetch-depth: 0
 
@@ -29,19 +30,41 @@ jobs:
       - name: Run crawler
         run: python main.py
 
+      - name: Upload files to Baota via PHP
+        env:
+          # 从 GitHub Secrets 中读取你的安全配置
+          Tongxin_TOKEN: ${{ secrets.Tongxin_TOKEN }}
+          Tongxin_URL_TOKEN: ${{ secrets.Tongxin_URL_TOKEN }}
+        run: |
+          # 获取今天的日期，也就是 Python 脚本生成的文件夹名
+          TODAY_DIR=$(date +'%Y-%m-%d')
+          
+          # 检查目录是否存在，防止出错中断流程
+          if [ -d "$TODAY_DIR" ]; then
+            # 遍历该目录下的所有文件 (json 和 log)
+            for filepath in "$TODAY_DIR"/*; do
+              if [ -f "$filepath" ]; then
+                echo "Uploading: $filepath"
+                curl -X POST \
+                  -F "file=@$filepath" \
+                  -F "token=$Tongxin_TOKEN" \
+                  -F "folder=$TODAY_DIR" \
+                  "$Tongxin_URL_TOKEN"
+              fi
+            done
+          else
+            echo "Directory $TODAY_DIR does not exist, nothing to upload."
+          fi
+
       - name: Commit & push data
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git pull origin main --rebase || true
 
-          # 1. 定义一个变量来存储 YYYY-MM-DD 格式的日期/目录名
           TODAY_DIR=$(date +'%Y-%m-%d')
-
-          # 2. 修改 git add 命令，添加新建的日期目录
           git add "$TODAY_DIR/"
 
-          # 3. 检查是否有文件被暂存 (staged)，如果有，才执行提交和推送
           git diff --cached --quiet || (
             git commit -m "auto: update clinic data for $TODAY_DIR" &&
             git push origin main
