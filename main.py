@@ -455,8 +455,8 @@ def post_office_list(city_id, product_code):
     }
     for attempt in range(1, 4):
         try:
-            # 加入随机休眠，减轻并发时对服务器的瞬间压力
-            time.sleep(random.uniform(0.2, 0.8))
+            # 加入随机休眠，减轻并发时对服务器的瞬间压力,0.5~2秒
+            time.sleep(random.uniform(0.5, 2))
             resp = requests.post(url, headers=HEADERS_TPL, json=payload, timeout=12)
             resp.raise_for_status()
             data = resp.json()
@@ -547,8 +547,8 @@ if __name__ == "__main__":
     CITIES = load_cities()
     total = 0
     
-    # 建议的并发数，10 是一个比较稳妥的值
-    WORKER_COUNT = 10 
+    # 建议的并发数，5 是一个比较稳妥的值
+    WORKER_COUNT = 5 
     
     for prod in PRODUCTS:
         rows = crawl_one_product(prod, CITIES, today_dir, max_workers=WORKER_COUNT) 
