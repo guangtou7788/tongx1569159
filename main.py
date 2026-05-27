@@ -8,6 +8,7 @@ import random
 import logging
 from datetime import datetime
 import requests
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 BARK_KEY = "WnpcNyZjd93bSubYD7Gx2N"
 BARK_URL = f"https://api.day.app/{BARK_KEY}/"
@@ -454,7 +455,8 @@ def post_office_list(city_id, product_code):
     }
     for attempt in range(1, 4):
         try:
-            time.sleep(random.uniform(0.5, 1.0))
+            # 加入随机休眠，减轻并发时对服务器的瞬间压力
+            time.sleep(random.uniform(0.2, 0.8))
             resp = requests.post(url, headers=HEADERS_TPL, json=payload, timeout=12)
             resp.raise_for_status()
             data = resp.json()
@@ -476,36 +478,53 @@ def save(product_name, data, output_dir):
     logging.info(f"已写入 {full_path}  共 {len(data)} 条")
 
 # ---------- 抓取与异常抢救流程 ----------
-def crawl_one_product(product, city_list, output_dir):
+def crawl_one_product(product, city_list, output_dir, max_workers=10):
     code, name = product["code"], product["name"]
-    logging.info(f"↓↓ 开始抓取【{name}】({code})")
+    logging.info(f"↓↓ 开始多线程抓取【{name}】({code})，并发数: {max_workers}")
     results = []
     
+    # 闭包函数：为了在线程池中执行单次任务
+    def fetch_single_city(city):
+        cid, cname = city["id"], city["name"]
+        offices = post_office_list(cid, code)
+        # 清洗数据
+        for o in offices:
+            o["cityName"] = cname
+            o["cityId"] = cid
+            o["productCode"] = code
+            o["productName"] = name
+            o["address"] = o.get("address", "地址暂无")
+            o["longitude"] = o.get("longitude", "") 
+            o["latitude"] = o.get("latitude", "")
+        return cname, offices
+    
     try:
-        for idx, city in enumerate(city_list, 1):
-            cid, cname = city["id"], city["name"]
-            offices = post_office_list(cid, code)
-            for o in offices:
-                # 顺手做一点数据清洗兜底，防止前端渲染出错
-                o["cityName"] = cname
-                o["cityId"] = cid
-                o["productCode"] = code
-                o["productName"] = name
-                o["address"] = o.get("address", "地址暂无")
-                o["longitude"] = o.get("longitude", "") 
-                o["latitude"] = o.get("latitude", "")
-            results.extend(offices)
-            logging.info(f"[{idx:03}/{len(city_list)}] {cname:<10}  {len(offices):>3} 条")
+        # 使用 ThreadPoolExecutor 管理并发
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            # 提交所有城市的任务
+            future_to_city = {executor.submit(fetch_single_city, city): city for city in city_list}
             
+            completed_count = 0
+            # as_completed 会在某个线程完成后立刻 yield，保证实时进度打印
+            for future in as_completed(future_to_city):
+                completed_count += 1
+                try:
+                    cname, offices = future.result()
+                    if offices:
+                        results.extend(offices)
+                    logging.info(f"[{completed_count:03}/{len(city_list)}] {cname:<10}  {len(offices):>3} 条")
+                except Exception as exc:
+                    city_name = future_to_city[future]["name"]
+                    logging.error(f"处理城市 {city_name} 时发生内部错误: {exc}")
+                    
     except Exception as e:
-        # 捕获到不可预知的严重错误，记录详细的堆栈信息进文件
+        # 捕获不可预知的严重错误 (包括可能的主线程中断)
         error_msg = f"抓取【{name}】时发生严重中断: {e}"
         logging.error(error_msg, exc_info=True) 
-        # 发送紧急通知
-        bark_push("🚨 门店抓取中断", f"产品【{name}】抓取遇到意外错误，已抢救保存前 {len(results)} 条数据。详细报错已写入日志文件。")
+        bark_push("🚨 门店抓取中断", f"产品【{name}】抓取遇到意外错误，已抢救保存前 {len(results)} 条数据。")
         
     finally:
-        # 无论如何，哪怕报错了，这行代码也一定会执行，实现数据落袋为安
+        # 数据落袋为安
         if results:
             save(name, results, output_dir)
             
@@ -513,11 +532,9 @@ def crawl_one_product(product, city_list, output_dir):
 
 # ---------- 启动入口 ----------
 if __name__ == "__main__":
-    # 1. 创建当天的存放目录
     today_dir = datetime.now().strftime("%Y-%m-%d")
     os.makedirs(today_dir, exist_ok=True)
     
-    # 2. 动态配置日志处理器，把 WARNING 级别以上的报错存入文本
     log_file = os.path.join(today_dir, "error.log")
     file_handler = logging.FileHandler(log_file, encoding='utf-8')
     file_handler.setLevel(logging.WARNING) 
@@ -527,11 +544,14 @@ if __name__ == "__main__":
     
     logging.info(f"所有文件将被保存在目录: ./{today_dir}/")
     
-    # 3. 开始执行
     CITIES = load_cities()
     total = 0
+    
+    # 建议的并发数，10 是一个比较稳妥的值
+    WORKER_COUNT = 10 
+    
     for prod in PRODUCTS:
-        rows = crawl_one_product(prod, CITIES, today_dir) 
+        rows = crawl_one_product(prod, CITIES, today_dir, max_workers=WORKER_COUNT) 
         total += len(rows)
 
     bark_push("数据抓取完成", f"共抓取 {total} 条门店数据，保存在 {today_dir} 目录")
