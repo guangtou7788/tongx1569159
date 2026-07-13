@@ -42,7 +42,7 @@ PRODUCTS = [
 #    {"name": "新享洁牙-带喷砂", "code": "1000876"},
 #    {"name": "焕新洁牙-带喷砂", "code": "1000872"},
 #    {"name": "【臻享权益】成人尊享喷砂洁牙套餐", "code": "1001558"},
-    {"name": "尊享Only", "code": "1000871"},
+    {"name": "尊享Only-限上海", "code": "1000871"},
  #   {"name": "乐享洁牙", "code": "1000625"},
 ]
 
@@ -481,6 +481,14 @@ def save(product_name, data, output_dir):
 # ---------- 抓取与异常抢救流程 ----------
 def crawl_one_product(product, city_list, output_dir, max_workers=10):
     code, name = product["code"], product["name"]
+    
+    # --- 新增逻辑：检查是否限定城市 ---
+    if "限" in name:
+        target_city_name = name.split("限")[-1].strip()  # 提取“限”后面的城市名，例如“上海”
+        city_list = [c for c in city_list if c["name"] == target_city_name]
+        logging.info(f"产品【{name}】包含限定标识，已将抓取范围缩小至: {target_city_name}")
+    # --------------------------------
+
     logging.info(f"↓↓ 开始多线程抓取【{name}】({code})，并发数: {max_workers}")
     results = []
     
@@ -502,7 +510,7 @@ def crawl_one_product(product, city_list, output_dir, max_workers=10):
     try:
         # 使用 ThreadPoolExecutor 管理并发
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            # 提交所有城市的任务
+            # 提交所有城市的任务（如果是限定城市，此时的 city_list 只有一个城市）
             future_to_city = {executor.submit(fetch_single_city, city): city for city in city_list}
             
             completed_count = 0
