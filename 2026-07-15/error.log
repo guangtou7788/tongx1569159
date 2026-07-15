@@ -1,0 +1,2 @@
+2026-07-15 18:01:55,394 | WARNING | 请求失败: HTTPSConnectionPool(host='ebkapi.17u.cn', port=443): Read timed out. (read timeout=12)  attempt=1
+2026-07-15 18:01:58,453 | WARNING | 请求失败: HTTPSConnectionPool(host='ebkapi.17u.cn', port=443): Read timed out. (read timeout=12)  attempt=1
