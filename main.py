@@ -6,6 +6,8 @@ import json
 import time
 import random
 import logging
+import csv
+import re
 from datetime import datetime
 import requests
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -468,35 +470,83 @@ def post_office_list(city_id, product_code):
             logging.warning(f"请求失败: {e}  attempt={attempt}")
     return []
 
-# ---------- 核心保存逻辑 ----------
+def extract_region(address):
+    """
+    从地址字符串中尝试提取“区”或“县”
+    """
+    if not address:
+        return "未知区域"
+    # 使用正则匹配：寻找“市”后面紧接着的、以“区”或“县”结尾的 2~5 个汉字
+    match = re.search(r'(?:省|市|自治区)([^省市]+?[区县])', address)
+    if match:
+        return match.group(1)
+    # 备用匹配方案：直接在地址里找第一个“区”或“县”
+    fallback_match = re.search(r'([\u4e00-\u9fa5]{1,5}?[区县])', address)
+    if fallback_match:
+        return fallback_match.group(1)
+    return "未知区域"
+
+# ---------- 核心保存逻辑（升级版：同时保存 JSON 和乐牙 CSV） ----------
 def save(product_name, data, output_dir):
     if not data:
         return
-    fname = f"{product_name}_{now_str()}.json"
-    full_path = os.path.join(output_dir, fname)
-    with open(full_path, "w", encoding="utf-8") as f:
+    
+    store_count = len(data)
+    base_name = f"{product_name}_{now_str()}"
+    
+    # 1. 保存原始 JSON
+    json_fname = f"{base_name}.json"
+    json_path = os.path.join(output_dir, json_fname)
+    with open(json_path, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=4)
-    logging.info(f"已写入 {full_path}  共 {len(data)} 条")
+    logging.info(f"已写入 JSON: {json_path}  共 {store_count} 条")
+
+    # 2. 转换并保存乐牙格式的 CSV
+    csv_fname = f"{base_name}_{store_count}.csv"
+    csv_path = os.path.join(output_dir, csv_fname)
+    try:
+        # 必须使用 utf-8-sig 编码，防 Excel 乱码
+        with open(csv_path, 'w', newline='', encoding='utf-8-sig') as csvfile:
+            writer = csv.writer(csvfile)
+            # 写入表头
+            writer.writerow(['城市', '门店名称', '区域(组合后)', '地址', '评分(留空)', '标签(剔除)'])
+
+            for store in data:
+                city_name = store.get('cityName', '未知城市')
+                store_name = store.get('name', '')
+                address = store.get('address', '')
+
+                # 自动补齐“市”
+                if '市' not in city_name and city_name != '未知城市':
+                    city_name = f"{city_name}市"
+
+                # 提取区域并组合
+                region_name = extract_region(address)
+                combined_region = f"{city_name}-{region_name}"
+
+                # 写入 CSV
+                writer.writerow([city_name, store_name, combined_region, address, '', ''])
+                
+        logging.info(f"已写入 CSV: {csv_path} (乐牙格式转换完毕)")
+    except Exception as e:
+        logging.error(f"写入 CSV 发生异常: {e}")
 
 # ---------- 抓取与异常抢救流程 ----------
 def crawl_one_product(product, city_list, output_dir, max_workers=10):
     code, name = product["code"], product["name"]
     
-    # --- 新增逻辑：检查是否限定城市 ---
+    # --- 检查是否限定城市 ---
     if "限" in name:
         target_city_name = name.split("限")[-1].strip()  # 提取“限”后面的城市名，例如“上海”
         city_list = [c for c in city_list if c["name"] == target_city_name]
         logging.info(f"产品【{name}】包含限定标识，已将抓取范围缩小至: {target_city_name}")
-    # --------------------------------
 
     logging.info(f"↓↓ 开始多线程抓取【{name}】({code})，并发数: {max_workers}")
     results = []
     
-    # 闭包函数：为了在线程池中执行单次任务
     def fetch_single_city(city):
         cid, cname = city["id"], city["name"]
         offices = post_office_list(cid, code)
-        # 清洗数据
         for o in offices:
             o["cityName"] = cname
             o["cityId"] = cid
@@ -508,13 +558,10 @@ def crawl_one_product(product, city_list, output_dir, max_workers=10):
         return cname, offices
     
     try:
-        # 使用 ThreadPoolExecutor 管理并发
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            # 提交所有城市的任务（如果是限定城市，此时的 city_list 只有一个城市）
             future_to_city = {executor.submit(fetch_single_city, city): city for city in city_list}
             
             completed_count = 0
-            # as_completed 会在某个线程完成后立刻 yield，保证实时进度打印
             for future in as_completed(future_to_city):
                 completed_count += 1
                 try:
@@ -527,13 +574,12 @@ def crawl_one_product(product, city_list, output_dir, max_workers=10):
                     logging.error(f"处理城市 {city_name} 时发生内部错误: {exc}")
                     
     except Exception as e:
-        # 捕获不可预知的严重错误 (包括可能的主线程中断)
         error_msg = f"抓取【{name}】时发生严重中断: {e}"
         logging.error(error_msg, exc_info=True) 
         bark_push("🚨 门店抓取中断", f"产品【{name}】抓取遇到意外错误，已抢救保存前 {len(results)} 条数据。")
         
     finally:
-        # 数据落袋为安
+        # 数据落袋为安，交给升级版 save 一步到位生成 JSON + CSV
         if results:
             save(name, results, output_dir)
             
@@ -556,7 +602,6 @@ if __name__ == "__main__":
     CITIES = load_cities()
     total = 0
     
-    # 建议的并发数，5 是一个比较稳妥的值
     WORKER_COUNT = 5 
     
     for prod in PRODUCTS:
